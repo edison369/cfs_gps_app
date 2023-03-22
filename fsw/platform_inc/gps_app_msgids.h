@@ -28,9 +28,12 @@
 #define GPS_APP_MSGIDS_H
 
 /* V1 Command Message IDs must be 0x18xx */
-#define GPS_APP_CMD_MID     0x1882
-#define GPS_APP_SEND_HK_MID 0x1883
+#define GPS_APP_CMD_MID     0x18C0
+#define GPS_APP_SEND_HK_MID 0x18C1
+#define GPS_APP_SEND_RF_MID 0x18C2
+#define GPS_APP_READ_MID 	 0x18C3
 /* V1 Telemetry Message IDs must be 0x08xx */
-#define GPS_APP_HK_TLM_MID 0x0883
+#define GPS_APP_HK_TLM_MID 0x08C1
+#define GPS_APP_RF_DATA_MID 0x08C2
 
 #endif /* GPS_APP_MSGIDS_H */

@@ -33,5 +33,7 @@
 #define GPS_APP_INVALID_MSGID_ERR_EID 5
 #define GPS_APP_LEN_ERR_EID           6
 #define GPS_APP_PIPE_ERR_EID          7
+#define GPS_APP_GENUC_ERR_EID         8
+#define GPS_APP_DEV_INF_EID           9
 
 #endif /* GPS_APP_EVENTS_H */

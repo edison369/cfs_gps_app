@@ -30,7 +30,6 @@
 */
 #define GPS_APP_NOOP_CC           0
 #define GPS_APP_RESET_COUNTERS_CC 1
-#define GPS_APP_PROCESS_CC        2
 
 /*************************************************************************/
 
@@ -51,7 +50,6 @@ typedef struct
 */
 typedef GPS_APP_NoArgsCmd_t GPS_APP_NoopCmd_t;
 typedef GPS_APP_NoArgsCmd_t GPS_APP_ResetCountersCmd_t;
-typedef GPS_APP_NoArgsCmd_t GPS_APP_ProcessCmd_t;
 
 /*************************************************************************/
 /*
@@ -63,7 +61,27 @@ typedef struct
     uint8 CommandErrorCounter;
     uint8 CommandCounter;
     uint8 spare[2];
+    float latitude;
+    float longitude;
+    float altitude;
+    uint8 satellites;
 } GPS_APP_HkTlm_Payload_t;
+
+typedef struct
+{
+    CFE_MSG_TelemetryHeader_t  TelemetryHeader; /**< \brief Telemetry header */
+    uint8_t AppID_H;
+    uint8_t AppID_L;
+    uint8 CommandCounter;
+    uint8 CommandErrorCounter;
+    uint8 spare[2];
+    uint8 byte_group_1[4];    // Latitude
+    uint8 byte_group_2[4];    // Longitude
+    uint8 byte_group_3[4];    // Altitude
+    uint8 byte_group_4[4];    // [Satellites, 0, 0, 0]
+    uint8 byte_group_5[4];    // empty
+    uint8 byte_group_6[4];    // empty
+} GPS_APP_OutData_t;
 
 typedef struct
 {

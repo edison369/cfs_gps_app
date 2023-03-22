@@ -39,16 +39,18 @@
 #include "gps_app_msg.h"
 
 /***********************************************************************/
+
+/*
+** Include and constants for I2C
+*/
+#include "gen-uC.h"
+
+static const char bus_path[] = "/dev/i2c-2";
+static const char genuC_path[] = "/dev/i2c-2.genuC-0";
+
+/***********************************************************************/
 #define GPS_APP_PIPE_DEPTH 32 /* Depth of the Command Pipe for Application */
 
-#define GPS_APP_NUMBER_OF_TABLES 1 /* Number of Table(s) */
-
-/* Define filenames of default data images for tables */
-#define GPS_APP_TABLE_FILE "/cf/gps_app_tbl.tbl"
-
-#define GPS_APP_TABLE_OUT_OF_RANGE_ERR_CODE -1
-
-#define GPS_APP_TBL_ELEMENT_1_MAX 10
 /************************************************************************
 ** Type Definitions
 *************************************************************************/
@@ -68,6 +70,15 @@ typedef struct
     ** Housekeeping telemetry packet...
     */
     GPS_APP_HkTlm_t HkTlm;
+    GPS_APP_OutData_t OutData;
+
+    /*
+    ** GPS Data...
+    */
+    float latitude;
+    float longitude;
+    float altitude;
+    uint8 satellites;
 
     /*
     ** Run Status variable used in the main processing loop
@@ -84,9 +95,13 @@ typedef struct
     */
     char   PipeName[CFE_MISSION_MAX_API_LEN];
     uint16 PipeDepth;
-
-    CFE_TBL_Handle_t TblHandles[GPS_APP_NUMBER_OF_TABLES];
 } GPS_APP_Data_t;
+
+typedef union
+{
+float number;
+uint8_t bytes[4];
+} floatu_t;
 
 /****************************************************************************/
 /*
@@ -99,6 +114,8 @@ void  GPS_APP_Main(void);
 int32 GPS_APP_Init(void);
 void  GPS_APP_ProcessCommandPacket(CFE_SB_Buffer_t *SBBufPtr);
 void  GPS_APP_ProcessGroundCommand(CFE_SB_Buffer_t *SBBufPtr);
+int32 GPS_APP_ReadSensor(const CFE_MSG_CommandHeader_t *Msg);
+int32 GPS_APP_ReportRFTelemetry(const CFE_MSG_CommandHeader_t *Msg);
 int32 GPS_APP_ReportHousekeeping(const CFE_MSG_CommandHeader_t *Msg);
 int32 GPS_APP_ResetCounters(const GPS_APP_ResetCountersCmd_t *Msg);
 int32 GPS_APP_Noop(const GPS_APP_NoopCmd_t *Msg);

@@ -54,8 +54,7 @@ void GPS_APP_Main(void)
     ** CFE_ES_RunStatus_APP_ERROR and the App will not enter the RunLoop
     */
     status = GPS_APP_Init();
-    if (status != CFE_SUCCESS)
-    {
+    if (status != CFE_SUCCESS){
         GPS_APP_Data.RunStatus = CFE_ES_RunStatus_APP_ERROR;
     }
 
@@ -115,6 +114,11 @@ int32 GPS_APP_Init(void)
     GPS_APP_Data.CmdCounter = 0;
     GPS_APP_Data.ErrCounter = 0;
 
+    GPS_APP_Data.latitude = 0;
+    GPS_APP_Data.longitude = 0;
+    GPS_APP_Data.altitude = 0;
+    GPS_APP_Data.satellites = 0;
+
     /*
     ** Initialize app configuration data
     */
@@ -139,6 +143,12 @@ int32 GPS_APP_Init(void)
     CFE_MSG_Init(CFE_MSG_PTR(GPS_APP_Data.HkTlm.TelemetryHeader), CFE_SB_ValueToMsgId(GPS_APP_HK_TLM_MID),
                  sizeof(GPS_APP_Data.HkTlm));
 
+   /*
+   ** Initialize output RF packet.
+   */
+   CFE_MSG_Init(CFE_MSG_PTR(GPS_APP_Data.OutData.TelemetryHeader), CFE_SB_ValueToMsgId(GPS_APP_RF_DATA_MID),
+                sizeof(GPS_APP_Data.OutData));
+
     /*
     ** Create Software Bus message pipe.
     */
@@ -160,9 +170,19 @@ int32 GPS_APP_Init(void)
     }
 
     /*
-    ** Subscribe to ground command packets
+    ** Subscribe to RF command packets
     */
-    status = CFE_SB_Subscribe(CFE_SB_ValueToMsgId(GPS_APP_CMD_MID), GPS_APP_Data.CommandPipe);
+    status = CFE_SB_Subscribe(CFE_SB_ValueToMsgId(GPS_APP_SEND_RF_MID), GPS_APP_Data.CommandPipe);
+    if (status != CFE_SUCCESS)
+    {
+        CFE_ES_WriteToSysLog("GPS App: Error Subscribing to RF request, RC = 0x%08lX\n", (unsigned long)status);
+        return status;
+    }
+
+    /*
+    ** Subscribe to Read command packets
+    */
+    status = CFE_SB_Subscribe(CFE_SB_ValueToMsgId(GPS_APP_READ_MID), GPS_APP_Data.CommandPipe);
     if (status != CFE_SUCCESS)
     {
         CFE_ES_WriteToSysLog("GPS App: Error Subscribing to Command, RC = 0x%08lX\n", (unsigned long)status);
@@ -171,19 +191,14 @@ int32 GPS_APP_Init(void)
     }
 
     /*
-    ** Register Table(s)
+    ** Subscribe to ground command packets
     */
-    status = CFE_TBL_Register(&GPS_APP_Data.TblHandles[0], "GPSAppTable", sizeof(GPS_APP_Table_t),
-                              CFE_TBL_OPT_DEFAULT, GPS_APP_TblValidationFunc);
+    status = CFE_SB_Subscribe(CFE_SB_ValueToMsgId(GPS_APP_CMD_MID), GPS_APP_Data.CommandPipe);
     if (status != CFE_SUCCESS)
     {
-        CFE_ES_WriteToSysLog("GPS App: Error Registering Table, RC = 0x%08lX\n", (unsigned long)status);
+        CFE_ES_WriteToSysLog("GPS App: Error Subscribing to Command, RC = 0x%08lX\n", (unsigned long)status);
 
         return status;
-    }
-    else
-    {
-        status = CFE_TBL_Load(GPS_APP_Data.TblHandles[0], CFE_TBL_SRC_FILE, GPS_APP_TABLE_FILE);
     }
 
     CFE_EVS_SendEvent(GPS_APP_STARTUP_INF_EID, CFE_EVS_EventType_INFORMATION, "GPS App Initialized.%s",
@@ -213,6 +228,14 @@ void GPS_APP_ProcessCommandPacket(CFE_SB_Buffer_t *SBBufPtr)
 
         case GPS_APP_SEND_HK_MID:
             GPS_APP_ReportHousekeeping((CFE_MSG_CommandHeader_t *)SBBufPtr);
+            break;
+
+        case GPS_APP_SEND_RF_MID:
+            GPS_APP_ReportRFTelemetry((CFE_MSG_CommandHeader_t *)SBBufPtr);
+            break;
+
+        case GPS_APP_READ_MID:
+            GPS_APP_ReadSensor((CFE_MSG_CommandHeader_t *)SBBufPtr);
             break;
 
         default:
@@ -254,20 +277,93 @@ void GPS_APP_ProcessGroundCommand(CFE_SB_Buffer_t *SBBufPtr)
 
             break;
 
-        case GPS_APP_PROCESS_CC:
-            if (GPS_APP_VerifyCmdLength(&SBBufPtr->Msg, sizeof(GPS_APP_ProcessCmd_t)))
-            {
-                GPS_APP_Process((GPS_APP_ProcessCmd_t *)SBBufPtr);
-            }
-
-            break;
-
         /* default case already found during FC vs length test */
         default:
             CFE_EVS_SendEvent(GPS_APP_COMMAND_ERR_EID, CFE_EVS_EventType_ERROR,
                               "Invalid ground command code: CC = %d", CommandCode);
             break;
     }
+}
+
+int32 GPS_APP_ReadSensor(const CFE_MSG_CommandHeader_t *Msg){
+  uint8_t *tmp;
+  tmp = NULL;
+
+  uC_read_bytes(14, &tmp);
+
+  floatu_t lat_u;
+  floatu_t long_u;
+  floatu_t alt_u;
+
+  for (int i = 0; i < 12; i++) {
+    if(i<4){
+      lat_u.bytes[i] = tmp[i];
+    }else if(i<8){
+      long_u.bytes[i-4] = tmp[i];
+    }else{
+      alt_u.bytes[i-8] = tmp[i];
+    }
+  }
+
+  GPS_APP_Data.latitude = lat_u.number;
+  GPS_APP_Data.longitude = long_u.number;
+  GPS_APP_Data.altitude = alt_u.number;
+  GPS_APP_Data.satellites = tmp[12];
+
+  free(tmp);
+
+
+  return CFE_SUCCESS;
+}
+
+
+int32 GPS_APP_ReportRFTelemetry(const CFE_MSG_CommandHeader_t *Msg){
+
+    /*
+    ** Get command execution counters...
+    */
+    GPS_APP_Data.OutData.CommandErrorCounter = GPS_APP_Data.ErrCounter;
+    GPS_APP_Data.OutData.CommandCounter      = GPS_APP_Data.CmdCounter;
+
+    /* Get the app ID */
+    GPS_APP_Data.OutData.AppID_H = (uint8_t) ((GPS_APP_HK_TLM_MID >> 8) & 0xff);
+    GPS_APP_Data.OutData.AppID_L = (uint8_t) (GPS_APP_HK_TLM_MID & 0xff);
+
+    /* Copy the GPS data */
+    uint8_t *aux_array1;
+    aux_array1 = NULL;
+    aux_array1 = malloc(4 * sizeof(uint8_t));
+    aux_array1 = (uint8_t*)(&GPS_APP_Data.latitude);
+
+    uint8_t *aux_array2;
+    aux_array2 = NULL;
+    aux_array2 = malloc(4 * sizeof(uint8_t));
+    aux_array2 = (uint8_t*)(&GPS_APP_Data.longitude);
+
+    uint8_t *aux_array3;
+    aux_array3 = NULL;
+    aux_array3 = malloc(4 * sizeof(uint8_t));
+    aux_array3 = (uint8_t*)(&GPS_APP_Data.altitude);
+
+    uint8_t aux_byte = (uint8_t) GPS_APP_Data.satellites;
+    uint8_t aux_array4[] = {aux_byte,0,0,0};
+
+    for(int i=0;i<4;i++){
+      GPS_APP_Data.OutData.byte_group_1[i] = aux_array1[i];
+      GPS_APP_Data.OutData.byte_group_2[i] = aux_array2[i];
+      GPS_APP_Data.OutData.byte_group_3[i] = aux_array3[i];
+      GPS_APP_Data.OutData.byte_group_4[i] = aux_array4[i];
+      GPS_APP_Data.OutData.byte_group_5[i] = 0;
+      GPS_APP_Data.OutData.byte_group_6[i] = 0;
+    }
+
+    /*
+    ** Send housekeeping telemetry packet...
+    */
+    CFE_SB_TimeStampMsg(CFE_MSG_PTR(GPS_APP_Data.OutData.TelemetryHeader));
+    CFE_SB_TransmitMsg(CFE_MSG_PTR(GPS_APP_Data.OutData.TelemetryHeader), true);
+
+    return CFE_SUCCESS;
 }
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * **/
@@ -280,27 +376,22 @@ void GPS_APP_ProcessGroundCommand(CFE_SB_Buffer_t *SBBufPtr)
 /* * * * * * * * * * * * * * * * * * * * * * * *  * * * * * * *  * *  * * * * */
 int32 GPS_APP_ReportHousekeeping(const CFE_MSG_CommandHeader_t *Msg)
 {
-    int i;
-
     /*
     ** Get command execution counters...
     */
     GPS_APP_Data.HkTlm.Payload.CommandErrorCounter = GPS_APP_Data.ErrCounter;
     GPS_APP_Data.HkTlm.Payload.CommandCounter      = GPS_APP_Data.CmdCounter;
 
+    GPS_APP_Data.HkTlm.Payload.latitude = GPS_APP_Data.latitude;
+    GPS_APP_Data.HkTlm.Payload.longitude = GPS_APP_Data.longitude;
+    GPS_APP_Data.HkTlm.Payload.altitude = GPS_APP_Data.altitude;
+    GPS_APP_Data.HkTlm.Payload.satellites = GPS_APP_Data.satellites;
+
     /*
     ** Send housekeeping telemetry packet...
     */
     CFE_SB_TimeStampMsg(CFE_MSG_PTR(GPS_APP_Data.HkTlm.TelemetryHeader));
     CFE_SB_TransmitMsg(CFE_MSG_PTR(GPS_APP_Data.HkTlm.TelemetryHeader), true);
-
-    /*
-    ** Manage any pending table loads, validations, etc.
-    */
-    for (i = 0; i < GPS_APP_NUMBER_OF_TABLES; i++)
-    {
-        CFE_TBL_Manage(GPS_APP_Data.TblHandles[i]);
-    }
 
     return CFE_SUCCESS;
 }

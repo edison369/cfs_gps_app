@@ -148,6 +148,7 @@ int32 GPS_APP_Init(void)
    */
    CFE_MSG_Init(CFE_MSG_PTR(GPS_APP_Data.OutData.TelemetryHeader), CFE_SB_ValueToMsgId(GPS_APP_RF_DATA_MID),
                 sizeof(GPS_APP_Data.OutData));
+   GPS_APP_Data.OutData.App_Pckg_Counter = 0;
 
     /*
     ** Create Software Bus message pipe.
@@ -328,6 +329,8 @@ int32 GPS_APP_ReportRFTelemetry(const CFE_MSG_CommandHeader_t *Msg){
     /* Get the app ID */
     GPS_APP_Data.OutData.AppID_H = (uint8_t) ((GPS_APP_HK_TLM_MID >> 8) & 0xff);
     GPS_APP_Data.OutData.AppID_L = (uint8_t) (GPS_APP_HK_TLM_MID & 0xff);
+
+    ++GPS_APP_Data.OutData.App_Pckg_Counter;
 
     /* Copy the GPS data */
     uint8_t *aux_array1;
